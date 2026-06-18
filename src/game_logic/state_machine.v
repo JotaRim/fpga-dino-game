@@ -15,6 +15,7 @@ module game_fsm(
     input  wire       rst,         // 异步高电平复位
     input  wire       frame_end,   // 每帧一个 clk 周期的高脉冲
     input  wire       space_trig,  // 空格键按下单周期脉冲
+    input  wire       pause_trig,  // P键按下单周期脉冲
     input  wire       hit_flag,    // 碰撞标志
 
     output reg  [1:0] game_state,  // 00=待机，01=游戏中，11=游戏结束
@@ -29,6 +30,7 @@ module game_fsm(
 
     reg [1:0] next_state;
     reg       start_req;
+    reg       pause_req;
 
     // ------------------------------------------------------------
     // 空格请求锁存
@@ -38,11 +40,19 @@ module game_fsm(
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             start_req <= 1'b0;
+            pause_req <= 1'b0;
         end else begin
-            if (space_trig)
+            if (space_trig && (game_state == S_IDLE || game_state == S_OVER))
                 start_req <= 1'b1;
             else if (frame_end && (game_state != S_PLAY) && start_req)
                 start_req <= 1'b0;
+            else if (game_state == S_PLAY || game_state == S_PAUS)
+                start_req <= 1'b0;
+
+            if (pause_trig)
+                pause_req <= 1'b1;
+            else if (frame_end && pause_req)
+                pause_req <= 1'b0;
         end
     end
 
@@ -59,8 +69,15 @@ module game_fsm(
             end
 
             S_PLAY: begin
-                if (hit_flag)
+                if (pause_req)
+                    next_state = S_PAUS;
+                else if (hit_flag)
                     next_state = S_OVER;
+            end
+
+            S_PAUS: begin
+                if (pause_req)
+                    next_state = S_PLAY;
             end
 
             S_OVER: begin

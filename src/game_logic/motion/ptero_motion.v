@@ -20,8 +20,8 @@ module ptero_motion(
     input  wire [8:0] ptero_y_new,
 
     output reg  [1:0] ptero_valid,
-    output reg  [9:0] ptero_x0,
-    output reg  [9:0] ptero_x1,
+    output reg  signed [10:0] ptero_x0,
+    output reg  signed [10:0] ptero_x1,
     output reg  [8:0] ptero_y0,
     output reg  [8:0] ptero_y1,
     output wire       ptero_state0,
@@ -30,16 +30,17 @@ module ptero_motion(
 );
 
     localparam S_PLAY = 2'b01;
-    localparam [9:0] NEW_X = 10'd700;
+    localparam signed [10:0] NEW_X = 11'sd700;
+    localparam signed [10:0] LEFT_LIM = -11'sd69;
     localparam [3:0] WING_FRM = 4'd12;
 
     wire       is_play;
-    wire [9:0] ptero_spd;
+    wire signed [10:0] ptero_spd;
     reg  [3:0] wing_cnt;
     reg        wing_bit;
 
     assign is_play = (game_state == S_PLAY);
-    assign ptero_spd = {5'd0, speed_px} + 10'd1;
+    assign ptero_spd = {6'd0, speed_px} + 11'sd1;
     assign ptero_ready = ~(&ptero_valid);
 
     assign ptero_state0 = ptero_valid[0] ? wing_bit : 1'b0;
@@ -69,34 +70,34 @@ module ptero_motion(
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             ptero_valid <= 2'b00;
-            ptero_x0 <= 10'd0;
-            ptero_x1 <= 10'd0;
+            ptero_x0 <= 11'sd0;
+            ptero_x1 <= 11'sd0;
             ptero_y0 <= 9'd0;
             ptero_y1 <= 9'd0;
         end else begin
             if (game_start) begin
                 ptero_valid <= 2'b00;
-                ptero_x0 <= 10'd0;
-                ptero_x1 <= 10'd0;
+                ptero_x0 <= 11'sd0;
+                ptero_x1 <= 11'sd0;
                 ptero_y0 <= 9'd0;
                 ptero_y1 <= 9'd0;
             end else if (frame_end && is_play) begin
                 if (ptero_valid[0]) begin
-                    if (ptero_x0 > ptero_spd)
+                    if (ptero_x0 > LEFT_LIM + ptero_spd)
                         ptero_x0 <= ptero_x0 - ptero_spd;
                     else begin
                         ptero_valid[0] <= 1'b0;
-                        ptero_x0 <= 10'd0;
+                        ptero_x0 <= 11'sd0;
                         ptero_y0 <= 9'd0;
                     end
                 end
 
                 if (ptero_valid[1]) begin
-                    if (ptero_x1 > ptero_spd)
+                    if (ptero_x1 > LEFT_LIM + ptero_spd)
                         ptero_x1 <= ptero_x1 - ptero_spd;
                     else begin
                         ptero_valid[1] <= 1'b0;
-                        ptero_x1 <= 10'd0;
+                        ptero_x1 <= 11'sd0;
                         ptero_y1 <= 9'd0;
                     end
                 end

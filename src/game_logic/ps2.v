@@ -15,10 +15,12 @@ module dino_key_input(
     output wire space_key,  // 空格键按住状态
     output wire up_key,     // 上方向键按住状态
     output wire down_key,   // 下方向键按住状态
+    output wire p_key,      // P键按住状态
 
     output wire space_trig, // 空格键按下时的单周期脉冲
     output wire up_trig,    // 上方向键按下时的单周期脉冲
-    output wire down_trig   // 下方向键按下时的单周期脉冲
+    output wire down_trig,  // 下方向键按下时的单周期脉冲
+    output wire p_trig      // P键按下时的单周期脉冲
 );
 
     wire [7:0] code;
@@ -43,9 +45,11 @@ module dino_key_input(
         .space_key  (space_key),
         .up_key     (up_key),
         .down_key   (down_key),
+        .p_key      (p_key),
         .space_trig (space_trig),
         .up_trig    (up_trig),
-        .down_trig  (down_trig)
+        .down_trig  (down_trig),
+        .p_trig     (p_trig)
     );
 
 endmodule
@@ -143,6 +147,7 @@ endmodule
 //   Space = 29h
 //   Up    = E0 75h
 //   Down  = E0 72h
+//   P     = 4Dh
 // 断码 F0 表示释放；E0 表示扩展键。
 // ============================================================
 
@@ -155,9 +160,11 @@ module ps2_dino_key(
     output reg        space_key,
     output reg        up_key,
     output reg        down_key,
+    output reg        p_key,
     output reg        space_trig,
     output reg        up_trig,
-    output reg        down_trig
+    output reg        down_trig,
+    output reg        p_trig
 );
 
     localparam C_EXT   = 8'hE0;
@@ -165,6 +172,7 @@ module ps2_dino_key(
     localparam C_SPACE = 8'h29;
     localparam C_UP    = 8'h75;
     localparam C_DOWN  = 8'h72;
+    localparam C_P     = 8'h4D;
 
     reg got_ext;
     reg got_break;
@@ -177,15 +185,18 @@ module ps2_dino_key(
             space_key  <= 1'b0;
             up_key     <= 1'b0;
             down_key   <= 1'b0;
+            p_key      <= 1'b0;
 
             space_trig <= 1'b0;
             up_trig    <= 1'b0;
             down_trig  <= 1'b0;
+            p_trig     <= 1'b0;
         end else begin
             // trig 只保持一个 clk 周期，key 状态保持到断码到来
             space_trig <= 1'b0;
             up_trig    <= 1'b0;
             down_trig  <= 1'b0;
+            p_trig     <= 1'b0;
 
             if (code_vld) begin
                 if (code == C_EXT) begin
@@ -221,6 +232,16 @@ module ps2_dino_key(
                                 if (!down_key)
                                     down_trig <= 1'b1;
                                 down_key <= 1'b1;
+                            end
+                        end
+
+                        {1'b0, C_P}: begin
+                            if (got_break) begin
+                                p_key <= 1'b0;
+                            end else begin
+                                if (!p_key)
+                                    p_trig <= 1'b1;
+                                p_key <= 1'b1;
                             end
                         end
 

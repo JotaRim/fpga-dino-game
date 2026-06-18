@@ -43,8 +43,8 @@ module dino_rand_sys(
     localparam [11:0] GAP_MIN    = 12'd300;
     localparam [11:0] CLOUD_GAP  = 12'd160;
 
-    // OBS_PROB 越大，障碍物越密。10/256 大致比较温和。
-    localparam [7:0] OBS_PROB = 8'd10;
+    // 障碍物按最小安全距离确定生成，避免上板调试时长时间等不到随机事件。
+    localparam [7:0] OBS_PROB = 8'd18;
 
     // 每600帧切换一个昼夜阶段，约10秒。
     localparam [9:0] DAY_FRM = 10'd600;
@@ -55,20 +55,25 @@ module dino_rand_sys(
     wire [11:0] speed_ext;
     wire        is_play;
     wire        obs_try;
+    wire        obs_due;
     wire        cloud_try;
+    wire        cloud_due;
     wire        want_cactus;
 
     reg  [11:0] obs_gap;
     reg  [11:0] cloud_gap;
     reg  [9:0]  day_cnt;
+    reg  [2:0]  obs_seq;
 
     assign is_play     = (game_state == S_PLAY);
     assign speed_ext   = {7'd0, speed_px};
     assign jump_gap    = speed_ext * AIR_FRM + GAP_MARGIN;
     assign min_gap     = (jump_gap < GAP_MIN) ? GAP_MIN : jump_gap;
     assign obs_try     = (rand[7:0] < OBS_PROB);
+    assign obs_due     = (obs_gap >= min_gap + 12'd240);
     assign cloud_try   = (rand[23:19] == 5'd0);
-    assign want_cactus = (rand[10:8] <= 3'd5);
+    assign cloud_due   = (cloud_gap >= CLOUD_GAP + 12'd160);
+    assign want_cactus = (obs_seq != 3'd2) && (obs_seq != 3'd5);
     assign night       = day_night_cycle[2];
 
     rand_lfsr u_rand(
@@ -99,6 +104,7 @@ module dino_rand_sys(
         if (rst) begin
             obs_gap    <= 12'd0;
             cloud_gap  <= 12'd0;
+            obs_seq    <= 3'd0;
             cactus_new <= 1'b0;
             ptero_new  <= 1'b0;
             cloud_new  <= 1'b0;
@@ -112,8 +118,9 @@ module dino_rand_sys(
             obs_skip   <= 1'b0;
 
             if (game_start) begin
-                obs_gap   <= 12'd0;
-                cloud_gap <= 12'd0;
+                obs_gap   <= GAP_MIN;
+                cloud_gap <= CLOUD_GAP;
+                obs_seq   <= 3'd0;
             end else if (frame_end && is_play) begin
                 if (obs_gap < (12'hfff - speed_ext))
                     obs_gap <= obs_gap + speed_ext;
@@ -125,28 +132,30 @@ module dino_rand_sys(
                 else
                     cloud_gap <= 12'hfff;
 
-                if (obs_try) begin
+                if (obs_due || obs_try) begin
                     if (obs_gap < min_gap) begin
                         obs_skip <= 1'b1;
                     end else if (want_cactus && cactus_ready) begin
                         cactus_new <= 1'b1;
                         obs_gap <= 12'd0;
+                        obs_seq <= obs_seq + 3'd1;
                     end else if (!want_cactus && ptero_ready) begin
                         ptero_new <= 1'b1;
                         obs_gap <= 12'd0;
+                        obs_seq <= obs_seq + 3'd1;
 
                         case (rand[15:14])
-                            2'd0: ptero_y <= 9'd190;  // 高空
-                            2'd1: ptero_y <= 9'd240;  // 中空
-                            2'd2: ptero_y <= 9'd285;  // 低空
-                            default: ptero_y <= 9'd240;
+                            2'd0: ptero_y <= 9'd265;  // 高空，站立会擦到头部
+                            2'd1: ptero_y <= 9'd290;  // 中空
+                            2'd2: ptero_y <= 9'd305;  // 低空
+                            default: ptero_y <= 9'd290;
                         endcase
                     end else begin
                         obs_skip <= 1'b1;
                     end
                 end
 
-                if (cloud_try && (cloud_gap >= CLOUD_GAP) && cloud_ready) begin
+                if ((cloud_try || cloud_due) && (cloud_gap >= CLOUD_GAP) && cloud_ready) begin
                     cloud_new <= 1'b1;
                     cloud_y <= 9'd110 + {3'd0, rand[5:0]};
                     cloud_gap <= 12'd0;
@@ -162,12 +171,12 @@ module dino_rand_sys(
         if (rst) begin
             day_cnt <= 10'd0;
             day_night_cycle <= 3'd0;
-            moon_phase <= 3'd0;
+            moon_phase <= 3'd3;
         end else begin
             if (game_start) begin
                 day_cnt <= 10'd0;
                 day_night_cycle <= 3'd0;
-                moon_phase <= 3'd0;
+                moon_phase <= 3'd3;
             end else if (frame_end && is_play) begin
                 if (day_cnt == DAY_FRM - 10'd1) begin
                     day_cnt <= 10'd0;

@@ -20,9 +20,9 @@ module cactus_motion(
     input  wire [2:0] cactus_type_new,
 
     output reg  [2:0] cactus_valid,
-    output reg  [9:0] cactus_x0,
-    output reg  [9:0] cactus_x1,
-    output reg  [9:0] cactus_x2,
+    output reg  signed [10:0] cactus_x0,
+    output reg  signed [10:0] cactus_x1,
+    output reg  signed [10:0] cactus_x2,
     output reg  [2:0] cactus_type0,
     output reg  [2:0] cactus_type1,
     output reg  [2:0] cactus_type2,
@@ -30,60 +30,60 @@ module cactus_motion(
 );
 
     localparam S_PLAY = 2'b01;
-    localparam [9:0] NEW_X = 10'd700;
+    localparam signed [10:0] NEW_X = 11'sd700;
 
     wire       is_play;
-    wire [9:0] spd;
+    wire signed [10:0] spd;
 
     assign is_play = (game_state == S_PLAY);
-    assign spd = {5'd0, speed_px};
+    assign spd = {6'd0, speed_px};
     assign cactus_ready = ~(&cactus_valid);
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             cactus_valid <= 3'b000;
-            cactus_x0 <= 10'd0;
-            cactus_x1 <= 10'd0;
-            cactus_x2 <= 10'd0;
+            cactus_x0 <= 11'sd0;
+            cactus_x1 <= 11'sd0;
+            cactus_x2 <= 11'sd0;
             cactus_type0 <= 3'b000;
             cactus_type1 <= 3'b000;
             cactus_type2 <= 3'b000;
         end else begin
             if (game_start) begin
                 cactus_valid <= 3'b000;
-                cactus_x0 <= 10'd0;
-                cactus_x1 <= 10'd0;
-                cactus_x2 <= 10'd0;
+                cactus_x0 <= 11'sd0;
+                cactus_x1 <= 11'sd0;
+                cactus_x2 <= 11'sd0;
                 cactus_type0 <= 3'b000;
                 cactus_type1 <= 3'b000;
                 cactus_type2 <= 3'b000;
             end else if (frame_end && is_play) begin
                 if (cactus_valid[0]) begin
-                    if (cactus_x0 > spd)
+                    if (cactus_x0 > -$signed({1'b0, cactus_width(cactus_type0)}) + spd)
                         cactus_x0 <= cactus_x0 - spd;
                     else begin
                         cactus_valid[0] <= 1'b0;
-                        cactus_x0 <= 10'd0;
+                        cactus_x0 <= 11'sd0;
                         cactus_type0 <= 3'b000;
                     end
                 end
 
                 if (cactus_valid[1]) begin
-                    if (cactus_x1 > spd)
+                    if (cactus_x1 > -$signed({1'b0, cactus_width(cactus_type1)}) + spd)
                         cactus_x1 <= cactus_x1 - spd;
                     else begin
                         cactus_valid[1] <= 1'b0;
-                        cactus_x1 <= 10'd0;
+                        cactus_x1 <= 11'sd0;
                         cactus_type1 <= 3'b000;
                     end
                 end
 
                 if (cactus_valid[2]) begin
-                    if (cactus_x2 > spd)
+                    if (cactus_x2 > -$signed({1'b0, cactus_width(cactus_type2)}) + spd)
                         cactus_x2 <= cactus_x2 - spd;
                     else begin
                         cactus_valid[2] <= 1'b0;
-                        cactus_x2 <= 10'd0;
+                        cactus_x2 <= 11'sd0;
                         cactus_type2 <= 3'b000;
                     end
                 end
@@ -106,5 +106,19 @@ module cactus_motion(
             end
         end
     end
+
+    function [9:0] cactus_width;
+        input [2:0] typ;
+        begin
+            case (typ)
+                3'd1: cactus_width = 10'd26;
+                3'd2: cactus_width = 10'd51;
+                3'd3: cactus_width = 10'd77;
+                3'd4: cactus_width = 10'd38;
+                3'd5: cactus_width = 10'd75;
+                default: cactus_width = 10'd113;
+            endcase
+        end
+    endfunction
 
 endmodule
