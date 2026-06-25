@@ -63,6 +63,7 @@ module dino_game_logic(
     localparam [8:0] DINO_DUCK_Y  = 9'd324;
     localparam signed [7:0] JUMP_V0 = -8'sd16;
     localparam signed [7:0] GRAVITY = 8'sd1;
+    localparam signed [7:0] FAST_FALL = 8'sd2;
 
     wire space_key;
     wire up_key;
@@ -80,6 +81,9 @@ module dino_game_logic(
     wire game_over;
     wire hit_flag;
     wire signed [10:0] dino_next_y;
+    wire signed [7:0]  dino_accel;
+    wire [16:0]        score_step;
+    wire [16:0]        score_next;
 
     reg signed [7:0] dino_v;
     reg              jumping;
@@ -87,9 +91,9 @@ module dino_game_logic(
     reg              anim_bit;
     reg [16:0]       score_bin;
     reg [4:0]        speed_px;
-    reg [16:0]       press_tone_cnt;
-    reg [17:0]       hit_tone_cnt;
-    reg [17:0]       reached_tone_cnt;
+    reg [25:0]       press_tone_cnt;
+    reg [25:0]       hit_tone_cnt;
+    reg [25:0]       reached_tone_cnt;
     reg [15:0]       press_div_cnt;
     reg [15:0]       hit_div_cnt;
     reg [15:0]       reached_div_cnt;
@@ -122,7 +126,13 @@ module dino_game_logic(
 
     assign jump_trig = space_trig | up_trig;
     assign duck_key = down_key;
-    assign dino_next_y = $signed({2'b00, dino_y}) + $signed(dino_v) + $signed(GRAVITY);
+    assign dino_accel = GRAVITY + ((jumping && duck_key) ? FAST_FALL : 8'sd0);
+    assign dino_next_y = $signed({2'b00, dino_y}) + $signed(dino_v) + $signed(dino_accel);
+    assign score_step = (speed_px <= 5'd7)  ? 17'd1 :
+                        (speed_px <= 5'd8)  ? 17'd2 :
+                        (speed_px <= 5'd10) ? 17'd3 :
+                                               17'd4;
+    assign score_next = (score_bin >= 17'd99999 - score_step) ? 17'd99999 : (score_bin + score_step);
 
     dino_key_input u_key(
         .clk        (clk),
@@ -271,7 +281,7 @@ module dino_game_logic(
             dino_v <= 8'sd0;
             jumping <= 1'b0;
             jump_req <= 1'b0;
-        end else if (jump_trig && game_state == S_PLAY) begin
+        end else if (jump_trig && game_state == S_PLAY && !duck_key && !jumping) begin
             jump_req <= 1'b1;
         end else if (game_state == S_PAUS) begin
             jump_req <= 1'b0;
@@ -289,7 +299,7 @@ module dino_game_logic(
                     jumping <= 1'b0;
                 end else begin
                     dino_y <= dino_next_y[8:0];
-                    dino_v <= dino_v + GRAVITY;
+                    dino_v <= dino_v + dino_accel;
                 end
             end else begin
                 dino_y <= DINO_STAND_Y;
@@ -317,10 +327,10 @@ module dino_game_logic(
     always @(*) begin
         if (game_state == S_OVER) begin
             dino_state = 3'b111;
-        end else if (game_state == S_PLAY && duck_key) begin
-            dino_state = anim_bit ? 3'b110 : 3'b010;
         end else if (jumping) begin
             dino_state = 3'b000;
+        end else if (game_state == S_PLAY && duck_key) begin
+            dino_state = anim_bit ? 3'b110 : 3'b010;
         end else if (game_state == S_PLAY) begin
             dino_state = anim_bit ? 3'b011 : 3'b001;
         end else begin
@@ -336,8 +346,7 @@ module dino_game_logic(
             score_bin <= 17'd0;
             speed_px <= 5'd7;
         end else if (frame_end && game_state == S_PLAY) begin
-            if (score_bin != 17'd99999)
-                score_bin <= score_bin + 17'd1;
+            score_bin <= score_next;
 
             if (score_bin < 17'd500)
                 speed_px <= 5'd7;
@@ -360,9 +369,9 @@ module dino_game_logic(
 
     always @(posedge clk or posedge rst) begin
         if (rst) begin
-            press_tone_cnt <= 17'd0;
-            hit_tone_cnt <= 18'd0;
-            reached_tone_cnt <= 18'd0;
+            press_tone_cnt <= 26'd0;
+            hit_tone_cnt <= 26'd0;
+            reached_tone_cnt <= 26'd0;
             press_div_cnt <= 16'd0;
             hit_div_cnt <= 16'd0;
             reached_div_cnt <= 16'd0;
@@ -370,23 +379,23 @@ module dino_game_logic(
             hit_tone <= 1'b0;
             reached_tone <= 1'b0;
         end else begin
-            if (jump_trig)
-                press_tone_cnt <= 17'd100000;
-            else if (press_tone_cnt != 17'd0)
-                press_tone_cnt <= press_tone_cnt - 17'd1;
+            if (game_start || (jump_trig && game_state == S_PLAY && !duck_key && !jumping))
+                press_tone_cnt <= 26'd12000000;
+            else if (press_tone_cnt != 26'd0)
+                press_tone_cnt <= press_tone_cnt - 26'd1;
 
             if (game_over)
-                hit_tone_cnt <= 18'd250000;
-            else if (hit_tone_cnt != 18'd0)
-                hit_tone_cnt <= hit_tone_cnt - 18'd1;
+                hit_tone_cnt <= 26'd30000000;
+            else if (hit_tone_cnt != 26'd0)
+                hit_tone_cnt <= hit_tone_cnt - 26'd1;
 
-            if (frame_end && game_state == S_PLAY && score_bin != 17'd0 && (score_bin % 17'd100 == 17'd0))
-                reached_tone_cnt <= 18'd160000;
-            else if (reached_tone_cnt != 18'd0)
-                reached_tone_cnt <= reached_tone_cnt - 18'd1;
+            if (frame_end && game_state == S_PLAY && score_bin != 17'd0 && (score_bin / 17'd5000 != score_next / 17'd5000))
+                reached_tone_cnt <= 26'd20000000;
+            else if (reached_tone_cnt != 26'd0)
+                reached_tone_cnt <= reached_tone_cnt - 26'd1;
 
-            if (press_tone_cnt != 17'd0) begin
-                if (press_div_cnt == 16'd28000) begin
+            if (press_tone_cnt != 26'd0) begin
+                if (press_div_cnt == 16'd52000) begin
                     press_div_cnt <= 16'd0;
                     press_tone <= ~press_tone;
                 end else begin
@@ -397,8 +406,8 @@ module dino_game_logic(
                 press_tone <= 1'b0;
             end
 
-            if (hit_tone_cnt != 18'd0) begin
-                if (hit_div_cnt == 16'd45000) begin
+            if (hit_tone_cnt != 26'd0) begin
+                if (hit_div_cnt == ((hit_tone_cnt > 26'd15000000) ? 16'd65000 : 16'd90000)) begin
                     hit_div_cnt <= 16'd0;
                     hit_tone <= ~hit_tone;
                 end else begin
@@ -409,8 +418,8 @@ module dino_game_logic(
                 hit_tone <= 1'b0;
             end
 
-            if (reached_tone_cnt != 18'd0) begin
-                if (reached_div_cnt == 16'd18000) begin
+            if (reached_tone_cnt != 26'd0) begin
+                if (reached_div_cnt == ((reached_tone_cnt > 26'd10000000) ? 16'd48000 : 16'd36000)) begin
                     reached_div_cnt <= 16'd0;
                     reached_tone <= ~reached_tone;
                 end else begin
@@ -423,9 +432,9 @@ module dino_game_logic(
         end
     end
 
-    assign sound_press = press_tone_cnt != 17'd0 ? press_tone : 1'b0;
-    assign sound_hit = hit_tone_cnt != 18'd0 ? hit_tone : 1'b0;
-    assign sound_reached = reached_tone_cnt != 18'd0 ? reached_tone : 1'b0;
+    assign sound_press = press_tone_cnt != 26'd0 ? press_tone : 1'b0;
+    assign sound_hit = hit_tone_cnt != 26'd0 ? hit_tone : 1'b0;
+    assign sound_reached = reached_tone_cnt != 26'd0 ? reached_tone : 1'b0;
 
     wire dino_ducking = (dino_state == 3'b010) || (dino_state == 3'b110);
 
@@ -442,20 +451,55 @@ module dino_game_logic(
         input [2:0] typ;
         input [8:0] dy;
         input duck;
-        reg [9:0] w;
         reg [8:0] h;
-        reg signed [11:0] ox;
-        reg [8:0] oy;
-        reg [9:0] ow;
-        reg [8:0] oh;
+        reg [8:0] top;
+        reg signed [11:0] sx;
         begin
-            w = cactus_w(typ);
             h = cactus_h(typ);
-            ox = x + 11'sd4;
-            oy = 9'd370 - h + 9'd4;
-            ow = w - 10'd8;
-            oh = h - 9'd8;
-            dino_hits_cactus = dino_overlap_rect(valid && typ != 3'd0, ox, oy, ow, oh, dy, duck);
+            top = 9'd370 - h;
+            sx = $signed({x[10], x});
+
+            case (typ)
+                3'd1: begin
+                    dino_hits_cactus =
+                        cactus_single_small(valid, sx + 12'sd0, top, dy, duck);
+                end
+
+                3'd2: begin
+                    dino_hits_cactus =
+                        cactus_single_small(valid, sx + 12'sd0, top, dy, duck) ||
+                        cactus_single_small(valid, sx + 12'sd25, top, dy, duck);
+                end
+
+                3'd3: begin
+                    dino_hits_cactus =
+                        cactus_single_small(valid, sx + 12'sd0, top, dy, duck) ||
+                        cactus_single_small(valid, sx + 12'sd25, top, dy, duck) ||
+                        cactus_single_small(valid, sx + 12'sd51, top, dy, duck);
+                end
+
+                3'd4: begin
+                    dino_hits_cactus =
+                        cactus_single_large(valid, sx + 12'sd0, top, dy, duck);
+                end
+
+                3'd5: begin
+                    dino_hits_cactus =
+                        cactus_single_large(valid, sx + 12'sd0, top, dy, duck) ||
+                        cactus_single_large(valid, sx + 12'sd37, top, dy, duck);
+                end
+
+                3'd6: begin
+                    dino_hits_cactus =
+                        cactus_single_large(valid, sx + 12'sd0, top, dy, duck) ||
+                        cactus_single_large(valid, sx + 12'sd37, top, dy, duck) ||
+                        cactus_single_large(valid, sx + 12'sd75, top, dy, duck);
+                end
+
+                default: begin
+                    dino_hits_cactus = 1'b0;
+                end
+            endcase
         end
     endfunction
 
@@ -466,7 +510,39 @@ module dino_game_logic(
         input [8:0] dy;
         input duck;
         begin
-            dino_hits_ptero = dino_overlap_rect(valid, x + 11'sd8, y + 9'd12, 10'd52, 9'd32, dy, duck);
+            dino_hits_ptero =
+                dino_overlap_rect(valid, $signed({x[10], x}) + 12'sd18, y + 9'd25, 10'd34, 9'd15, dy, duck) ||
+                dino_overlap_rect(valid, $signed({x[10], x}) + 12'sd49, y + 9'd18, 10'd13, 9'd15, dy, duck) ||
+                dino_overlap_rect(valid, $signed({x[10], x}) + 12'sd16, y + 9'd12, 10'd25, 9'd12, dy, duck) ||
+                dino_overlap_rect(valid, $signed({x[10], x}) + 12'sd16, y + 9'd40, 10'd25, 9'd11, dy, duck);
+        end
+    endfunction
+
+    function cactus_single_small;
+        input valid;
+        input signed [11:0] x;
+        input [8:0] top;
+        input [8:0] dy;
+        input duck;
+        begin
+            cactus_single_small =
+                dino_overlap_rect(valid, x + 12'sd9,  top + 9'd5,  10'd8,  9'd43, dy, duck) ||
+                dino_overlap_rect(valid, x + 12'sd3,  top + 9'd21, 10'd7,  9'd12, dy, duck) ||
+                dino_overlap_rect(valid, x + 12'sd15, top + 9'd15, 10'd7,  9'd14, dy, duck);
+        end
+    endfunction
+
+    function cactus_single_large;
+        input valid;
+        input signed [11:0] x;
+        input [8:0] top;
+        input [8:0] dy;
+        input duck;
+        begin
+            cactus_single_large =
+                dino_overlap_rect(valid, x + 12'sd15, top + 9'd5,  10'd11, 9'd62, dy, duck) ||
+                dino_overlap_rect(valid, x + 12'sd5,  top + 9'd31, 10'd12, 9'd17, dy, duck) ||
+                dino_overlap_rect(valid, x + 12'sd24, top + 9'd21, 10'd12, 9'd20, dy, duck);
         end
     endfunction
 

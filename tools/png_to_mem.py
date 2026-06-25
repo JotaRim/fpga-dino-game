@@ -24,7 +24,7 @@ ASSETS = {
     "cloud": ("assets/img/others/cloud.png", (69, 20)),
     "ground_a": ("assets/img/others/groundA.png", (900, 20)),
     "ground_b": ("assets/img/others/groundB.png", (900, 20)),
-    "moon": ("assets/img/others/moonA.png", (30, 60)),
+    "moon": ("assets/img/others/moonA.png", (40, 80)),
 }
 
 

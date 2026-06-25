@@ -73,10 +73,10 @@ module display_system(
     localparam [9:0] GROUND_W = 10'd900;
     localparam [8:0] GROUND_H = 9'd20;
     localparam [8:0] GROUND_Y = 9'd360;
-    localparam [9:0] MOON_X = 10'd92;
-    localparam [8:0] MOON_Y = 9'd54;
-    localparam [9:0] MOON_W = 10'd30;
-    localparam [8:0] MOON_H = 9'd60;
+    localparam [9:0] MOON_X = 10'd88;
+    localparam [8:0] MOON_Y = 9'd42;
+    localparam [9:0] MOON_W = 10'd40;
+    localparam [8:0] MOON_H = 9'd80;
 
     wire [9:0] px;
     wire [8:0] py;
@@ -717,18 +717,35 @@ module moon_sprite(
     input  wire [2:0] phase,
     output wire [1:0] pix
 );
-    wire in_box = (phase != 3'd0) && (x >= 10'd92) && (x < 10'd122) && (y >= 9'd54) && (y < 9'd114);
-    wire [10:0] addr = (y - 9'd54) * 10'd30 + (x - 10'd92);
-    wire [1:0] raw;
-    wire [9:0] lx = x - 10'd92;
+    localparam [9:0] MOON_FULL_X = 10'd88;
+    localparam [9:0] MOON_HALF_X = 10'd108;
+    localparam [8:0] MOON_TOP    = 9'd42;
 
-    sprite_rom #(.ADDR_WIDTH(11), .MEM_FILE("moon.mem")) u_moon(.addr(addr), .data(raw));
+    wire in_half = (x >= MOON_HALF_X) && (x < MOON_HALF_X + 10'd40) &&
+                   (y >= MOON_TOP) && (y < MOON_TOP + 9'd80);
+    wire in_full = (x >= MOON_FULL_X) && (x < MOON_FULL_X + 10'd80) &&
+                   (y >= MOON_TOP) && (y < MOON_TOP + 9'd80);
 
-    assign pix = (!in_box) ? 2'b00 :
-                 (phase == 3'd1 && lx > 10'd8)  ? 2'b00 :
-                 (phase == 3'd2 && lx > 10'd14) ? 2'b00 :
-                 (phase == 3'd4 && lx < 10'd14) ? 2'b00 :
-                 (phase == 3'd5 && lx < 10'd21) ? 2'b00 :
-                 raw;
+    wire [11:0] half_addr = (y - MOON_TOP) * 10'd40 + (x - MOON_HALF_X);
+    wire [12:0] full_addr = (y - MOON_TOP) * 10'd80 + (x - MOON_FULL_X);
+
+    wire [1:0] moon_a;
+    wire [1:0] moon_b;
+    wire [1:0] moon_c;
+    wire [1:0] moon_d;
+    wire [1:0] moon_e;
+
+    sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("moon.mem"))   u_moon_a(.addr(half_addr), .data(moon_a));
+    sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("moon_b.mem")) u_moon_b(.addr(half_addr), .data(moon_b));
+    sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("moon_c.mem")) u_moon_c(.addr(full_addr), .data(moon_c));
+    sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("moon_d.mem")) u_moon_d(.addr(half_addr), .data(moon_d));
+    sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("moon_e.mem")) u_moon_e(.addr(half_addr), .data(moon_e));
+
+    assign pix = (phase == 3'd1 && in_half) ? moon_a :
+                 (phase == 3'd2 && in_half) ? moon_b :
+                 (phase == 3'd3 && in_full) ? moon_c :
+                 (phase == 3'd4 && in_half) ? moon_d :
+                 (phase == 3'd5 && in_half) ? moon_e :
+                 2'b00;
 endmodule
 

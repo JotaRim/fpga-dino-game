@@ -46,8 +46,8 @@ module dino_rand_sys(
     // 障碍物按最小安全距离确定生成，避免上板调试时长时间等不到随机事件。
     localparam [7:0] OBS_PROB = 8'd18;
 
-    // 每600帧切换一个昼夜阶段，约10秒。
-    localparam [9:0] DAY_FRM = 10'd600;
+    // 每200帧切换一个昼夜阶段。
+    localparam [9:0] DAY_FRM = 10'd200;
 
     wire [29:0] rand;
     wire [11:0] jump_gap;
