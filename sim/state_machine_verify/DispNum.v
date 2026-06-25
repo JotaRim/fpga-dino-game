@@ -1,5 +1,7 @@
 `timescale 1ns / 1ps
 
+// lab 中已完成的模块
+
 module Decoder2 (
     output out_0,
     output out_1,

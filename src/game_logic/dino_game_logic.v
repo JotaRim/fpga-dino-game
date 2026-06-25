@@ -1,5 +1,13 @@
 `timescale 1ns / 1ps
 
+// ============================================================
+// Dino Game Logic Top
+// 功能：封装键盘输入、状态机、随机生成、运动、计分、音效与碰撞检测。
+// 说明：
+//   1. 运动与计分均以 frame_end 为帧同步信号更新。
+//   2. 输出只包含游戏状态和元素坐标，不产生 VGA 像素数据。
+//   3. 元素坐标均为左上角像素坐标，恐龙 X 坐标在本模块中固定。
+// ============================================================
 module dino_game_logic(
     input  wire        clk,
     input  wire        rst,
@@ -51,20 +59,22 @@ module dino_game_logic(
     output wire [3:0]  score4
 );
 
+    // 游戏主状态编码，与显示系统约定保持一致
     localparam S_IDLE = 2'b00;
     localparam S_PLAY = 2'b01;
     localparam S_PAUS = 2'b10;
     localparam S_OVER = 2'b11;
 
+    // 恐龙固定位置与跳跃物理参数
     localparam [9:0] DINO_X = 10'd50;
-    // The source sprite has transparent padding below the feet. Put the
-    // bounding box a few pixels below the horizon so the visible feet touch it.
+    // 原始图片脚下有透明留白，因此碰撞/显示基准略低于地平线，使可见脚部贴地。
     localparam [8:0] DINO_STAND_Y = 9'd299;
     localparam [8:0] DINO_DUCK_Y  = 9'd324;
     localparam signed [7:0] JUMP_V0 = -8'sd16;
     localparam signed [7:0] GRAVITY = 8'sd1;
     localparam signed [7:0] FAST_FALL = 8'sd2;
 
+    // 键盘输入解析结果：*_key 表示当前按下，*_trig 表示单周期触发
     wire space_key;
     wire up_key;
     wire down_key;
@@ -77,6 +87,7 @@ module dino_game_logic(
     wire duck_key;
     reg  jump_req;
 
+    // 主状态机与恐龙运动相关的组合信号
     wire game_start;
     wire game_over;
     wire hit_flag;
@@ -85,6 +96,7 @@ module dino_game_logic(
     wire [16:0]        score_step;
     wire [16:0]        score_next;
 
+    // 恐龙运动、动画、分数和音效寄存器
     reg signed [7:0] dino_v;
     reg              jumping;
     reg [3:0]        anim_cnt;
@@ -101,6 +113,7 @@ module dino_game_logic(
     reg              hit_tone;
     reg              reached_tone;
 
+    // 随机生成系统与运动系统之间的握手/缓存信号
     wire cactus_ready;
     wire ptero_ready;
     wire cloud_ready;
@@ -124,16 +137,20 @@ module dino_game_logic(
     wire [8:0] cloud_y_new;
     wire obs_skip;
 
+    // 空格和上键都视为跳跃；下键保持按下时进入下蹲/快速下落逻辑
     assign jump_trig = space_trig | up_trig;
     assign duck_key = down_key;
     assign dino_accel = GRAVITY + ((jumping && duck_key) ? FAST_FALL : 8'sd0);
     assign dino_next_y = $signed({2'b00, dino_y}) + $signed(dino_v) + $signed(dino_accel);
+
+    // 分数增长随速度提高而加快，并在 99999 饱和
     assign score_step = (speed_px <= 5'd7)  ? 17'd1 :
                         (speed_px <= 5'd8)  ? 17'd2 :
                         (speed_px <= 5'd10) ? 17'd3 :
                                                17'd4;
     assign score_next = (score_bin >= 17'd99999 - score_step) ? 17'd99999 : (score_bin + score_step);
 
+    // PS/2 键盘输入模块：输出按键保持状态和触发脉冲
     dino_key_input u_key(
         .clk        (clk),
         .rst        (rst),
@@ -149,6 +166,7 @@ module dino_game_logic(
         .p_trig     (p_trig)
     );
 
+    // 游戏主状态机：待机、游戏中、暂停、游戏结束
     game_fsm u_fsm(
         .clk         (clk),
         .rst         (rst),
@@ -161,6 +179,7 @@ module dino_game_logic(
         .game_over   (game_over)
     );
 
+    // 随机生成与昼夜系统：决定新障碍/云朵生成和背景阶段
     dino_rand_sys u_rand(
         .clk             (clk),
         .rst             (rst),
@@ -183,6 +202,7 @@ module dino_game_logic(
         .day_night_cycle (day_night_cycle)
     );
 
+    // 物体运动系统：维护地面、仙人掌、翼龙、云朵的槽位和坐标
     dino_obj_motion u_motion(
         .clk              (clk),
         .rst              (rst),
@@ -224,6 +244,8 @@ module dino_game_logic(
         .cloud_y2         (cloud_y2)
     );
 
+
+    // 将随机系统的短脉冲缓存到下一帧，避免运动模块错过生成请求
     assign cactus_new = cactus_pending;
     assign cactus_type_new = cactus_type_pending;
     assign ptero_new = ptero_pending;
@@ -231,6 +253,7 @@ module dino_game_logic(
     assign cloud_new = cloud_pending;
     assign cloud_y_new = cloud_y_pending;
 
+    // 生成请求缓存：收到 *_new_raw 后保持到 frame_end，再交给运动模块消费
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             cactus_pending <= 1'b0;
@@ -247,6 +270,7 @@ module dino_game_logic(
             cloud_pending <= 1'b0;
             cloud_y_pending <= 9'd0;
         end else begin
+            // 随机模块可能不与 frame_end 对齐，因此先锁存生成请求。
             if (cactus_new_raw) begin
                 cactus_pending <= 1'b1;
                 cactus_type_pending <= cactus_type_raw;
@@ -270,6 +294,8 @@ module dino_game_logic(
         end
     end
 
+
+    // 恐龙纵向运动：跳跃、重力、下蹲快速下落以及落地检测
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             dino_y <= DINO_STAND_Y;
@@ -287,6 +313,7 @@ module dino_game_logic(
             jump_req <= 1'b0;
         end else if (frame_end && game_state == S_PLAY) begin
             if (!jumping && jump_req) begin
+                // 起跳只在帧边界真正生效，避免同一帧重复起跳。
                 jumping <= 1'b1;
                 jump_req <= 1'b0;
                 dino_v <= JUMP_V0;
@@ -294,6 +321,7 @@ module dino_game_logic(
             end else if (jumping) begin
                 jump_req <= 1'b0;
                 if (dino_next_y >= $signed({2'b00, DINO_STAND_Y})) begin
+                    // 回到站立高度即认为落地，清零速度和跳跃标志。
                     dino_y <= DINO_STAND_Y;
                     dino_v <= 8'sd0;
                     jumping <= 1'b0;
@@ -307,6 +335,8 @@ module dino_game_logic(
         end
     end
 
+
+    // 恐龙跑步/下蹲动画，每隔若干帧翻转一次姿态
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             anim_cnt <= 4'd0;
@@ -324,6 +354,8 @@ module dino_game_logic(
         end
     end
 
+
+    // 根据游戏状态、跳跃/下蹲状态和动画位选择恐龙显示姿态
     always @(*) begin
         if (game_state == S_OVER) begin
             dino_state = 3'b111;
@@ -338,6 +370,8 @@ module dino_game_logic(
         end
     end
 
+
+    // 分数与速度控制：分数按帧累加，速度随分数阶段性提升
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             score_bin <= 17'd0;
@@ -348,6 +382,7 @@ module dino_game_logic(
         end else if (frame_end && game_state == S_PLAY) begin
             score_bin <= score_next;
 
+            // 速度分段提升，障碍和地面运动模块统一使用 speed_px。
             if (score_bin < 17'd500)
                 speed_px <= 5'd7;
             else if (score_bin < 17'd1000)
@@ -361,12 +396,16 @@ module dino_game_logic(
         end
     end
 
+
+    // 将二进制分数拆成 5 位 BCD，供显示系统直接使用
     assign score0 = score_bin % 10;
     assign score1 = (score_bin / 10) % 10;
     assign score2 = (score_bin / 100) % 10;
     assign score3 = (score_bin / 1000) % 10;
     assign score4 = (score_bin / 10000) % 10;
 
+
+    // 简单方波音效：跳跃、碰撞和阶段得分分别使用不同持续时间/频率
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             press_tone_cnt <= 26'd0;
@@ -379,6 +418,7 @@ module dino_game_logic(
             hit_tone <= 1'b0;
             reached_tone <= 1'b0;
         end else begin
+            // 三类音效均通过倒计时控制持续时间，倒计时期间输出分频方波。
             if (game_start || (jump_trig && game_state == S_PLAY && !duck_key && !jumping))
                 press_tone_cnt <= 26'd12000000;
             else if (press_tone_cnt != 26'd0)
@@ -432,10 +472,13 @@ module dino_game_logic(
         end
     end
 
+
     assign sound_press = press_tone_cnt != 26'd0 ? press_tone : 1'b0;
     assign sound_hit = hit_tone_cnt != 26'd0 ? hit_tone : 1'b0;
     assign sound_reached = reached_tone_cnt != 26'd0 ? reached_tone : 1'b0;
 
+
+    // 碰撞检测入口：只在游戏中检测恐龙与有效障碍物是否重叠
     wire dino_ducking = (dino_state == 3'b010) || (dino_state == 3'b110);
 
     assign hit_flag = (game_state == S_PLAY) &&
@@ -445,6 +488,8 @@ module dino_game_logic(
                        dino_hits_ptero(pterodactyl_valid[0], pterodactyl_x0, pterodactyl_y0, dino_y, dino_ducking) ||
                        dino_hits_ptero(pterodactyl_valid[1], pterodactyl_x1, pterodactyl_y1, dino_y, dino_ducking));
 
+
+    // 仙人掌碰撞：按类型拆成单个小/大仙人掌的近似矩形组合
     function dino_hits_cactus;
         input valid;
         input signed [10:0] x;
@@ -503,6 +548,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 翼龙碰撞：用身体、头部和上下翅膀的多个矩形近似有效区域
     function dino_hits_ptero;
         input valid;
         input signed [10:0] x;
@@ -518,6 +565,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 单个小仙人掌的有效碰撞区域，避开图片透明和空白部分
     function cactus_single_small;
         input valid;
         input signed [11:0] x;
@@ -532,6 +581,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 单个大仙人掌的有效碰撞区域
     function cactus_single_large;
         input valid;
         input signed [11:0] x;
@@ -546,6 +597,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 恐龙碰撞区域：站立/跳跃和下蹲使用不同的矩形近似
     function dino_overlap_rect;
         input valid;
         input signed [11:0] ox;
@@ -575,6 +628,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 仙人掌整体宽度查询函数，保留用于后续扩展或接口兼容
     function [9:0] cactus_w;
         input [2:0] typ;
         begin
@@ -589,6 +644,7 @@ module dino_game_logic(
         end
     endfunction
 
+
     function [8:0] cactus_h;
         input [2:0] typ;
         begin
@@ -596,6 +652,8 @@ module dino_game_logic(
         end
     endfunction
 
+
+    // 通用 AABB 矩形重叠判断
     function rect_overlap;
         input valid;
         input signed [11:0] ax;

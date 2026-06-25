@@ -1,5 +1,13 @@
 `timescale 1ns / 1ps
 
+// ============================================================
+// Display System Top
+// 功能：将游戏逻辑输出的状态信号渲染为 VGA 像素，并输出音效控制信号。
+// 说明：
+//   1. 本模块只负责显示与声音输出，不修改游戏状态。
+//   2. 所有元素坐标均使用左上角像素坐标，与 game_logic 接口约定一致。
+//   3. 像素颜色在 compose_pixel 中按优先级叠加生成。
+// ============================================================
 module display_system(
     input  wire        clk,
     input  wire        rst,
@@ -57,9 +65,11 @@ module display_system(
     output wire        buzzer
 );
 
+    // 只需要识别暂停和结束状态，用于叠加暂停/结束界面
     localparam S_OVER = 2'b11;
     localparam S_PAUS = 2'b10;
 
+    // 各类精灵的显示尺寸，均为素材缩放后的像素尺寸
     localparam [9:0] DINO_X = 10'd50;
     localparam [9:0] DINO_W = 10'd66;
     localparam [8:0] DINO_H = 9'd70;
@@ -78,6 +88,7 @@ module display_system(
     localparam [9:0] MOON_W = 10'd40;
     localparam [8:0] MOON_H = 9'd80;
 
+    // VGA 控制器输出当前扫描像素坐标，并把 pixel_rgb 转为 VGA 三色信号
     wire [9:0] px;
     wire [8:0] py;
     wire [11:0] pixel_rgb;
@@ -97,8 +108,10 @@ module display_system(
         .vga_b     (vga_b)
     );
 
+    // 三种音效任意一种有效时驱动蜂鸣器
     assign buzzer = sound_press | sound_hit | sound_reached;
 
+    // 恐龙显示区域判断：下蹲姿态使用更宽、更矮的素材
     wire is_duck = (dino_state == 3'b010) || (dino_state == 3'b110);
     wire [8:0] dino_draw_y = is_duck ? (dino_y + (DINO_H - DUCK_H)) : dino_y;
     wire dino_norm_hit = !is_duck && rect_hit(px, py, DINO_X, dino_y, DINO_W, DINO_H);
@@ -114,6 +127,7 @@ module display_system(
     wire [1:0] pix_duck_left;
     wire [1:0] pix_duck_right;
 
+    // 不同姿态分别存放在不同 ROM 中，地址由当前像素在精灵内的相对位置决定
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("dino_default.mem")) u_rom_dino_default(.addr(dino_addr), .data(pix_dino_default));
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("dino_left.mem"))    u_rom_dino_left   (.addr(dino_addr), .data(pix_dino_left));
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("dino_right.mem"))   u_rom_dino_right  (.addr(dino_addr), .data(pix_dino_right));
@@ -121,6 +135,7 @@ module display_system(
     sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("dino_duck_left.mem"))  u_rom_duck_left (.addr(duck_addr), .data(pix_duck_left));
     sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("dino_duck_right.mem")) u_rom_duck_right(.addr(duck_addr), .data(pix_duck_right));
 
+    // 根据恐龙状态选择跑姿、静止姿或死亡姿；区域外输出 00 表示透明
     wire [1:0] dino_pix = !dino_norm_hit ? 2'b00 :
                           (game_state == S_OVER || dino_state == 3'b111) ? pix_dino_dead :
                           (dino_state == 3'b001) ? pix_dino_left :
@@ -137,12 +152,14 @@ module display_system(
     wire cactus_hit1;
     wire cactus_hit2;
 
+    // 仙人掌使用 3 个槽位独立渲染，槽位无效时自动透明
     cactus_sprite u_cactus0(.x(px), .y(py), .valid(cactus_valid[0]), .base_x(cactus_x0), .typ(cactus_type0), .hit(cactus_hit0), .pix(cactus_pix0));
     cactus_sprite u_cactus1(.x(px), .y(py), .valid(cactus_valid[1]), .base_x(cactus_x1), .typ(cactus_type1), .hit(cactus_hit1), .pix(cactus_pix1));
     cactus_sprite u_cactus2(.x(px), .y(py), .valid(cactus_valid[2]), .base_x(cactus_x2), .typ(cactus_type2), .hit(cactus_hit2), .pix(cactus_pix2));
 
     wire [1:0] ptero_pix0;
     wire [1:0] ptero_pix1;
+    // 翼龙 X 坐标可能已经移出屏幕左侧，因此这里统一用有符号相对坐标
     wire signed [11:0] ptero_rel_x0 = $signed({2'b00, px}) - $signed({pterodactyl_x0[10], pterodactyl_x0});
     wire signed [11:0] ptero_rel_x1 = $signed({2'b00, px}) - $signed({pterodactyl_x1[10], pterodactyl_x1});
     wire ptero_hit0 = pterodactyl_valid[0] && (ptero_rel_x0 >= 12'sd0) && (ptero_rel_x0 < 12'sd69) &&
@@ -156,6 +173,7 @@ module display_system(
     wire [1:0] ptero_up1;
     wire [1:0] ptero_down1;
 
+    // 两帧翼龙翅膀动画共用同一套相对地址
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("ptero_up.mem"))   u_rom_ptero_up0  (.addr(ptero_addr0), .data(ptero_up0));
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("ptero_down.mem")) u_rom_ptero_down0(.addr(ptero_addr0), .data(ptero_down0));
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("ptero_up.mem"))   u_rom_ptero_up1  (.addr(ptero_addr1), .data(ptero_up1));
@@ -164,6 +182,7 @@ module display_system(
     assign ptero_pix0 = ptero_hit0 ? (pterodactyl_state0 ? ptero_down0 : ptero_up0) : 2'b00;
     assign ptero_pix1 = ptero_hit1 ? (pterodactyl_state1 ? ptero_down1 : ptero_up1) : 2'b00;
 
+    // 云朵、地面和月亮均作为低优先级背景元素参与像素合成
     wire [1:0] cloud_pix0;
     wire [1:0] cloud_pix1;
     wire [1:0] cloud_pix2;
@@ -179,6 +198,7 @@ module display_system(
     wire [1:0] moon_pix;
     moon_sprite u_moon(.x(px), .y(py), .phase(moon_phase), .pix(moon_pix));
 
+    // 统一在组合函数中按优先级合成最终颜色
     assign pixel_rgb = compose_pixel(
         px, py, night, day_night_cycle, game_state,
         ground_pix0, ground_pix1,
@@ -191,6 +211,7 @@ module display_system(
         score4, score3, score2, score1, score0
     );
 
+    // 像素合成函数：从背景开始，依次覆盖地面、云朵、障碍、恐龙、分数和界面提示
     function [11:0] compose_pixel;
         input [9:0] x;
         input [8:0] y;
@@ -219,6 +240,7 @@ module display_system(
         input [3:0] s0;
         reg [11:0] c;
         begin
+            // 先得到背景色，再按绘制优先级逐层覆盖非透明像素
             c = sky_color(y, 1'b0, cycle);
             if (gp0 != 2'b00) c = sprite_color(gp0, 1'b0, 12'h555, 12'h555);
             if (gp1 != 2'b00) c = sprite_color(gp1, 1'b0, 12'h555, 12'h555);
@@ -233,6 +255,7 @@ module display_system(
             if (dp  != 2'b00) c = sprite_color(dp,  1'b0, 12'h555, 12'h555);
             if (ddp != 2'b00) c = sprite_color(ddp, 1'b0, 12'h555, 12'h555);
             if (score_pixel(x, y, s4, s3, s2, s1, s0)) c = 12'h777;
+            // 暂停和游戏结束界面优先级最高，覆盖普通游戏元素
             if (gstate == S_PAUS) begin
                 if (pause_letter(x, y)) c = 12'h444;
             end
@@ -240,12 +263,14 @@ module display_system(
                 if (gameover_letter(x, y)) c = 12'h444;
                 if (restart_icon(x, y)) c = 12'he44;
             end
+            // 夜晚模式整体反色，月亮最后绘制，避免被反色背景淹没
             if (n) c = 12'hfff - c;
             if (n && mp != 2'b00) c = sprite_color(mp, 1'b0, 12'hccc, 12'hccc);
             compose_pixel = c;
         end
     endfunction
 
+    // 根据昼夜阶段生成背景色；当前调用中白天为纯白，夜晚由反色逻辑处理
     function [11:0] sky_color;
         input [8:0] y;
         input n;
@@ -269,6 +294,7 @@ module display_system(
         end
     endfunction
 
+    // 将 ROM 中的 2bit 精灵像素转换为 12bit RGB，00 在上层视为透明
     function [11:0] sprite_color;
         input [1:0] pix;
         input n;
@@ -280,6 +306,7 @@ module display_system(
         end
     endfunction
 
+    // 生成恐龙脚部与地面接触的小像素块，可用于调试贴地效果
     function dino_contact_pixel;
         input [9:0] x;
         input [8:0] y;
@@ -295,6 +322,7 @@ module display_system(
         end
     endfunction
 
+    // 通用矩形命中判断，用于精灵区域和文字笔画判断
     function rect_hit;
         input [9:0] x;
         input [8:0] y;
@@ -307,6 +335,7 @@ module display_system(
         end
     endfunction
 
+    // 计分区域判断，保留为调试/扩展接口
     function score_area;
         input [9:0] x;
         input [8:0] y;
@@ -315,6 +344,7 @@ module display_system(
         end
     endfunction
 
+    // 分数显示：5 个 BCD 数字固定绘制在右上角
     function score_pixel;
         input [9:0] x;
         input [8:0] y;
@@ -332,6 +362,7 @@ module display_system(
         end
     endfunction
 
+    // 5x7 点阵数字，每个点阵单元放大为 3x3 像素
     function digit_pixel;
         input [9:0] lx;
         input [8:0] ly;
@@ -363,6 +394,7 @@ module display_system(
         end
     endfunction
 
+    // 返回指定数字在 5x7 点阵中的一行
     function [4:0] digit_row;
         input [3:0] digit;
         input [2:0] row;
@@ -463,6 +495,7 @@ module display_system(
         end
     endfunction
 
+    // Game Over 字样由若干矩形笔画组合而成，不额外占用 ROM
     function gameover_letter;
         input [9:0] x;
         input [8:0] y;
@@ -481,6 +514,7 @@ module display_system(
         end
     endfunction
 
+    // Pause 字样，与 Game Over 一样使用矩形笔画绘制
     function pause_letter;
         input [9:0] x;
         input [8:0] y;
@@ -498,6 +532,7 @@ module display_system(
         end
     endfunction
 
+    // 重开图标：用圆环加箭头近似绘制
     function restart_icon;
         input [9:0] x;
         input [8:0] y;
@@ -514,6 +549,7 @@ module display_system(
         end
     endfunction
 
+    // 以下 letter_* 函数为简单块状英文字母的笔画定义
     function letter_G;
         input [9:0] x;
         input [8:0] y;
@@ -627,6 +663,10 @@ module display_system(
 
 endmodule
 
+// ============================================================
+// Cactus Sprite
+// 功能：根据仙人掌类型选择对应 ROM，并输出当前像素的 2bit 颜色编码。
+// ============================================================
 module cactus_sprite(
     input  wire [9:0] x,
     input  wire [8:0] y,
@@ -638,6 +678,7 @@ module cactus_sprite(
 );
     localparam [8:0] CACTUS_GROUND_Y = 9'd370;
 
+    // typ=1~3 为小仙人掌，typ=4~6 为大仙人掌，宽高随类型变化
     wire is_large = typ >= 3'd4;
     wire [9:0] w = (typ == 3'd1) ? 10'd26 :
                    (typ == 3'd2) ? 10'd51 :
@@ -657,6 +698,7 @@ module cactus_sprite(
     wire [1:0] large_b;
     wire [1:0] large_c;
 
+    // 地址宽度按各素材实际面积截取，避免不同类型之间互相影响
     sprite_rom #(.ADDR_WIDTH(11), .MEM_FILE("cactus_small_a.mem")) u_sa(.addr(addr[10:0]), .data(small_a));
     sprite_rom #(.ADDR_WIDTH(12), .MEM_FILE("cactus_small_b.mem")) u_sb(.addr(addr[11:0]), .data(small_b));
     sprite_rom #(.ADDR_WIDTH(13), .MEM_FILE("cactus_small_c.mem")) u_sc(.addr(addr[12:0]), .data(small_c));
@@ -673,6 +715,10 @@ module cactus_sprite(
                  (typ == 3'd5) ? large_b : large_c;
 endmodule
 
+// ============================================================
+// Cloud Sprite
+// 功能：在指定位置绘制云朵背景元素。
+// ============================================================
 module cloud_sprite(
     input  wire [9:0] x,
     input  wire [8:0] y,
@@ -691,6 +737,10 @@ module cloud_sprite(
     assign pix = in_box ? raw : 2'b00;
 endmodule
 
+// ============================================================
+// Ground Sprite
+// 功能：绘制单段地面贴图，两段地面交替滚动形成连续地面。
+// ============================================================
 module ground_sprite #(
     parameter MEM_FILE = "ground_a.mem"
 )(
@@ -699,6 +749,7 @@ module ground_sprite #(
     input  wire signed [10:0] base_x,
     output wire [1:0] pix
 );
+    // 地面 base_x 为有符号数，支持一段地面滚出屏幕后继续向左移动
     wire signed [11:0] sx = {2'b00, x};
     wire signed [11:0] bx = {base_x[10], base_x};
     wire signed [11:0] rel = sx - bx;
@@ -711,6 +762,10 @@ module ground_sprite #(
     assign pix = in_box ? raw : 2'b00;
 endmodule
 
+// ============================================================
+// Moon Sprite
+// 功能：根据月相编号选择对应月亮素材，仅在夜晚合成时显示。
+// ============================================================
 module moon_sprite(
     input  wire [9:0] x,
     input  wire [8:0] y,
@@ -721,6 +776,7 @@ module moon_sprite(
     localparam [9:0] MOON_HALF_X = 10'd108;
     localparam [8:0] MOON_TOP    = 9'd42;
 
+    // 半月素材宽 40，全月素材宽 80，因此分别计算命中区域和 ROM 地址
     wire in_half = (x >= MOON_HALF_X) && (x < MOON_HALF_X + 10'd40) &&
                    (y >= MOON_TOP) && (y < MOON_TOP + 9'd80);
     wire in_full = (x >= MOON_FULL_X) && (x < MOON_FULL_X + 10'd80) &&
